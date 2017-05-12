@@ -1,0 +1,214 @@
+
+---
+title: "Problem Set 3. Due Thurs March 2 5pm"
+author: "Katie Arnolds"
+date: "Feb 23, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "#>")
+```
+```{r}
+library(stringr)
+library(tidyverse)
+```
+
+# Submission
+
+1. Fork this repository to your own account
+1. Make changes to the `README.Rmd` file (including the author field above).
+1. Knit the file to HTML format and add it to your git repository (`git add`)
+1. Submit a pull request with your Rmd and knitted HTML files.
+
+# Overview 
+
+You will examine a [time-course of mRNA expression][1] of barley powdery mildew fungus in immunocompromised plants (*Arabidopsis*). The fungus Blumeria graminis f. sp. hordei (called *Bgh* from now on)
+
+Counts were generated using the [`maSigPro` software][3] and deposited in [NCBI GEO][2].
+
+[1]: http://www.ncbi.nlm.nih.gov/pubmed/23175786
+[2]: http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE43163  
+[3]: http://bioinformatics.oxfordjournals.org/content/30/18/2598.full
+
+Some important identifiers for the data set:
+
+| Name | Description |
+| ---- | ----------- |
+| `A6` | *Bgh* isolate expressing other AVRA effectors |
+| `K1` | *Bgh* isolate expressing the cognate AVRA1 effector for MLA1|
+| `pps` | *Arabidopsis* plants |
+| `B12` | *Arabidopsis* plants expressing MLA1-HA|
+
+We will download tables from GEO containing counts of mRNA abundance from both the fungal sample.
+
+# Raw data
+
+First we need load the data.
+
+```{r load_raw_data, message = FALSE}
+library(tidyverse)
+
+# bgh data
+bgh_url <- 'http://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE43163&format=file&file=GSE43163_CompleteCountTable_Bgh.txt.gz'
+
+# 2 info and blank lines at top, skip them
+raw_data <- read_tsv(bgh_url, skip = 2)
+
+# the header for the first column is "NA", set it manually
+names(raw_data)[1] <- 'gene.name'
+
+raw_data <- as_data_frame(raw_data)
+
+
+
+```
+
+# Problems
+
+
+## Problem 1
+
+Now that the raw data are loaded, your first task is to tidy the data with `tidyr`. The `cleaned_data` should look something like this:
+
+```
+# A tibble: 310,896 × 6
+             gene.name plant fungus time.point   rep value
+*                <chr> <chr>  <chr>      <chr> <chr> <int>
+1             bgh04079   B12     A6       6hpi     1    13
+2             bgh01634   B12     A6       6hpi     1    31
+3  bghG000012000001001   B12     A6       6hpi     1   121
+4  bghG000012000002001   B12     A6       6hpi     1     3
+5             bgh00757   B12     A6       6hpi     1   253
+6             bgh01273   B12     A6       6hpi     1    45
+7             bgh01274   B12     A6       6hpi     1    32
+8             bgh01277   B12     A6       6hpi     1     9
+9             bgh06140   B12     A6       6hpi     1    47
+10            bgh05774   B12     A6       6hpi     1    42
+# ... with 310,886 more rows
+```
+
+The key steps are to `gather()` the data into key-value pairs and then `separate()` the information from the key column into new columns.
+
+```{r problem_1}
+raw_data %>% gather(key, value, -gene.name) %>%
+separate(key, into = c('plant', 'fungus', 'time.point', 'rep'), sep = '_') -> cleaned_data
+cleaned_data
+```
+
+## Problem 3
+
+You need to translate what you learned on the command line into the R world.
+
+Which plant has the highest expression of any gene in the 6hpi time point?
+
+
+
+```{r}
+cleaned_data %>% filter(time.point ==  "6hpi") %>% arrange(desc(value)) %>% slice(1) %>% select(plant)
+```
+
+Which plant / fungus pair has the highest expression in the 18hpi time point?
+
+
+
+```{r}
+cleaned_data %>% filter(time.point == "18hpi") %>% arrange(desc(value)) %>% slice(1) %>% select(plant, fungus)
+```
+
+## Problem 3
+
+Identify the top 3 most consistently differentially expressed genes between the earliest and latest time points for each combination of `plant` and `fungus` strains.
+
+- "Differential expression"" is the difference between `value` (i.e., gene expression level) between time points.
+
+- "Consistency" is the smallest variance in `value` between replicates.
+
+### Strategy
+
+1. Create a new table from the cleaned data by moving each `hpi` value to a new column name, with counts for each in the column (hint: use a `tidyr` verb). It is helpful to reformat the `hpi` values by converting from e.g. `6hpi` to `hpi.6`. You can use `mutate` to do this, i.e.:
+
+```{r reformat_time}
+cleaned_data %>%
+mutate(time.value = str_replace(time.point, 'hpi', ''),
+       time.hpi = str_c('hpi.', time.value)) -> cleaned_data
+cleaned_data
+```
+
+2. Create a new column containing the expression difference between the relevant time points.
+
+
+```{r}
+cleaned_data
+```
+
+
+
+```{r}
+cleaned_data%>%
+select(-time.point,-time.value) %>%
+spread(time.hpi, value) %>%
+mutate(expr.diff = hpi.24 - hpi.6) %>% 
+group_by(gene.name, plant, fungus) %>% 
+summarise(expr.var = var(expr.diff), abs_mean = mean(abs(expr.diff)))-> cleaned_data_expr
+```
+
+3. Calculate summary statistics (mean and variance) of the expression differences by grouping (hint) the `gene.name`, `plant`, and `virus` columns.
+```{r}
+cleaned_data_expr
+```
+
+4. Sort by these statistics and use the `dplyr` verb `slice` to pull the ones you want (i.e., the top 3). Note you will have to remove `gene.name` from the grouping so that sorting works.
+```{r}
+cleaned_data_expr%>%
+arrange(desc(expr.var)) %>% group_by(plant, fungus) %>% select(gene.name, plant, fungus) %>% slice(3) -> cleaned_data_top3
+cleaned_data_top3
+```
+
+```{r}
+cleaned_data_expr %>% 
+  group_by(plant, fungus) %>%
+  select(plant, fungus) %>%
+  slice(4)->plant_fungus_combos
+plant_fungus_combos
+```
+
+
+
+## Problem 4
+
+Now examine the above final data frame above and write a few sentences putting inline code in least 3 places. For example, There are `r nrow(mtcars)` rows of data in `mtcars`.
+
+The above `cleaned_data` allows us to compare mRNA expression `value` of fungal genes when looking at the following `plant_fungus_combos`. Examining the `expr.var` allows to see which genes may be of interest in this `df`. The genes with the greatest variable expression, `cleaned_data_top3`' would be of higest interest, notably `%filter(gene.name == 'bgh06162'` shows up twice in this list making it a potentially critical gene.
+
+## Problem 5
+```{r}
+cleaned_data_expr%>%
+arrange(desc(expr.var)) %>% group_by(plant, fungus) %>% slice(3) -> cleaned_data_top3
+cleaned_data_top3
+
+merge(cleaned_data_top3, cleaned_data, by = c ("gene.name", "plant", "fungus")) -> merge_data
+merge_data
+```
+
+Plot the expression (`value`) by time (`hpi`) for the above genes. Format the plot as follows:
+
+1. Plot each point.
+1. Connect the points with a smooth line 
+1. Create a facet for each `plant` / `bgh` pair 
+1. Assign a different color to each gene 
+1. Assign a different shape to each replicate 
+1. Add a descriptive title to the plot 
+1. Use the "black & white" theme
+
+
+
+```{r}
+ggplot(merge_data, aes(x = as.numeric(time.value), y= value, color =gene.name)) + geom_point() +geom_smooth(method = lm, se =FALSE) + facet_grid(plant ~ fungus) + theme_bw()-> data_plot
+data_plot + labs(x= "Hours Post Infection", y = "mRNA Expression", title = "Highest Differential Gene Expression")
+```
+
+
+Extra credit: add error bars to the plot (use `geom_errorbar`).
