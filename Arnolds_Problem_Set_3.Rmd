@@ -1,4 +1,4 @@
-
+http://rpubs.com/klarnolds/275744
 ---
 title: "Problem Set 3. Due Thurs March 2 5pm"
 author: "Katie Arnolds"
